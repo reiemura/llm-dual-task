@@ -1,0 +1,53 @@
+library(tidyverse)
+library(dplyr)
+library(epitools)
+library(ggplot2)
+
+
+df_qa <- read.csv("df_qa.csv")
+
+diff <- df_qa %>%
+  group_by(task, arithmetic, model, plausibility) %>%
+  summarise(
+    acc = mean(correctness),
+    n = n(),
+    se = sqrt(acc * (1 - acc) / n),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = plausibility,
+    values_from = c(acc, se, n),
+    names_glue = "{.value}_{plausibility}"
+  ) %>%
+  mutate(
+    diff = acc_plausible - acc_implausible,
+    se_diff = sqrt(se_plausible^2 + se_implausible^2),  # SEの合成
+    ci_lower = diff - qnorm(0.975) * se_diff,
+    ci_upper = diff + qnorm(0.975) * se_diff
+  )
+view(diff)
+write.csv(diff, "diff.csv", row.names=F)
+
+
+diff$task <- factor(diff$task, levels = c("single_task", "noisy_single_task", "dual_task"))
+
+diff_graph <- ggplot(diff, aes(x = task, y = diff, group = arithmetic, color = arithmetic)) +
+  geom_line(aes(linetype = arithmetic), position = position_dodge(width = 0.3)) +
+  geom_point(position = position_dodge(width = 0.5), size = 0.5) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper),
+                width = 0.1, position = position_dodge(width = 0.5)) +
+  facet_wrap(~ model) +
+  labs(
+    title = "Accuracy Difference (Plausible - Implausible)",
+    x = "Task",
+    y = "Accuracy Difference",
+    color = "Arithmetic",
+    linetype = "Arithmetic"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  coord_fixed(ratio = 7.0)
+print(diff_graph)
+ggsave("diff_graph.png", diff_graph, width = 5)
+
+
